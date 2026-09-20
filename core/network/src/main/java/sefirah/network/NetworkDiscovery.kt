@@ -319,8 +319,42 @@ class NetworkDiscovery @Inject constructor(
                         Log.e(TAG, "Failed to broadcast to $hostname: ${e.message?.take(30)}")
                     }
                 }
+                probeUsbDevice()
             } catch (e: Exception) {
                 Log.e(TAG, "Broadcasting failed", e)
+            }
+        }
+    }
+
+    fun probeUsbDevice() {
+        scope.launch {
+            try {
+                // Check if loopback port 5152 (adb reverse) is responsive
+                val isPortOpen = kotlinx.coroutines.withContext(Dispatchers.IO) {
+                    try {
+                        java.net.Socket().use { s ->
+                            s.connect(java.net.InetSocketAddress("127.0.0.1", 5152), 400)
+                            true
+                        }
+                    } catch (_: Exception) {
+                        false
+                    }
+                }
+                if (isPortOpen) {
+                    Log.d(TAG, "USB reverse tunnel detected on 127.0.0.1:5152, probing Desktop...")
+                    val pairedUsb = deviceManager.pairedDevices.value.firstOrNull { pd ->
+                        pd.address?.startsWith("127.") == true || pd.addresses.any { it.address.startsWith("127.") }
+                    }
+                    if (pairedUsb != null) {
+                        if (!pairedUsb.connectionState.isConnectedOrConnecting && !pairedUsb.connectionState.isForcedDisconnect) {
+                            networkManager.connectPaired(pairedUsb)
+                        }
+                    } else {
+                        networkManager.connectTo(ConnectionDetails(deviceId = "", port = 5152, addresses = listOf("127.0.0.1"), prefAddress = "127.0.0.1"))
+                    }
+                }
+            } catch (e: Exception) {
+                Log.d(TAG, "probeUsbDevice: ${e.message}")
             }
         }
     }

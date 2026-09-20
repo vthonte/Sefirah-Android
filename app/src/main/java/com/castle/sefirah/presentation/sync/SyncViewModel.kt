@@ -46,6 +46,10 @@ class SyncViewModel @Inject constructor(
     private val _pendingQrConnection = MutableStateFlow<QrCodeConnectionData?>(null)
     val pendingQrConnection: StateFlow<QrCodeConnectionData?> = _pendingQrConnection.asStateFlow()
 
+    init {
+        networkDiscovery.probeUsbDevice()
+    }
+
     fun showQrConnection(connectionData: QrCodeConnectionData) {
         _pendingQrConnection.value = connectionData
     }
@@ -99,6 +103,7 @@ class SyncViewModel @Inject constructor(
         viewModelScope.launch {
             _isRefreshing.value = true
             networkDiscovery.broadcastDevice()
+            networkDiscovery.probeUsbDevice()
             // Fake slower refresh so it doesn't seem like it's not doing anything
             delay(1.5.seconds)
             _isRefreshing.value = false

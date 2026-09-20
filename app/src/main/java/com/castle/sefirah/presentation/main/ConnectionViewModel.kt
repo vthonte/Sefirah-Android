@@ -73,7 +73,7 @@ class ConnectionViewModel @Inject constructor(
         
         val currentState = device.connectionState
         when {
-            syncRequest && currentState.isDisconnected -> connect(device)
+            syncRequest && !currentState.isConnected -> connect(device)
             syncRequest && currentState.isConnected -> {
                 // Disconnect first, then reconnect
                 connectionJobs.remove(device.deviceId)?.cancel()
