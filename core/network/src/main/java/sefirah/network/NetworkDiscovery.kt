@@ -195,6 +195,11 @@ class NetworkDiscovery @Inject constructor(
 
             override fun onAvailable(network: Network) {
                 Log.d(TAG, "Network callback Received (onAvailable)")
+                try {
+                    udpSocket?.close()
+                } catch (ignored: Exception) { }
+                udpSocket = null
+                startDiscovery()
                 broadcastDevice()
                 probePairedDevices()
             }
@@ -202,6 +207,17 @@ class NetworkDiscovery @Inject constructor(
             override fun onLost(network: Network) {
                 Log.d(TAG, "Network Lost")
                 _currentWifiSsid.value = null
+                scope.launch {
+                    deviceManager.pairedDevices.value.forEach { device ->
+                        if (device.connectionState.isConnected && device.address != "127.0.0.1") {
+                            networkManager.disconnect(device.deviceId)
+                        }
+                    }
+                }
+                try {
+                    udpSocket?.close()
+                } catch (ignored: Exception) { }
+                udpSocket = null
                 if (!trustAllNetworks) stopDiscovery()
             }
         }
@@ -212,6 +228,11 @@ class NetworkDiscovery @Inject constructor(
                 val wifiManager = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
                 val wifiInfo = wifiManager.connectionInfo
                 deviceDiscoveryCallback(wifiInfo)
+                try {
+                    udpSocket?.close()
+                } catch (ignored: Exception) { }
+                udpSocket = null
+                startDiscovery()
                 broadcastDevice()
                 probePairedDevices()
             }
@@ -219,6 +240,17 @@ class NetworkDiscovery @Inject constructor(
             override fun onLost(network: Network) {
                 Log.d(TAG, "Network Lost")
                 _currentWifiSsid.value = null
+                scope.launch {
+                    deviceManager.pairedDevices.value.forEach { device ->
+                        if (device.connectionState.isConnected && device.address != "127.0.0.1") {
+                            networkManager.disconnect(device.deviceId)
+                        }
+                    }
+                }
+                try {
+                    udpSocket?.close()
+                } catch (ignored: Exception) { }
+                udpSocket = null
                 if (!trustAllNetworks) stopDiscovery()
             }
         }
@@ -249,7 +281,7 @@ class NetworkDiscovery @Inject constructor(
                 probeUsbDevice()
                 deviceManager.pairedDevices.value.forEach { device ->
                     if (device.connectionState.isForcedDisconnect) return@forEach
-                    if (!device.connectionState.isConnectedOrConnecting || device.address == "127.0.0.1") {
+                    if (!device.connectionState.isConnectedOrConnecting) {
                         val hasNonLoopback = device.addresses.any { !it.address.startsWith("127.") }
                         if (hasNonLoopback) {
                             networkManager.connectPaired(device)
@@ -399,9 +431,19 @@ class NetworkDiscovery @Inject constructor(
 
     private suspend fun startDeviceListener() {
         Log.d(TAG, "Device listener started")
-        try {
-            while (currentCoroutineContext().isActive) {
-                val datagram = udpSocket!!.receive()
+        while (currentCoroutineContext().isActive) {
+            try {
+                if (udpSocket == null || udpSocket?.isClosed == true) {
+                    udpSocket = socketFactory.udpSocket(udpPort)
+                }
+
+                val socket = udpSocket
+                if (socket == null) {
+                    kotlinx.coroutines.delay(1000)
+                    continue
+                }
+
+                val datagram = socket.receive()
                 val udpBroadcast = datagram.packet.readLine()?.let {
                     MessageSerializer.deserialize(it) as UdpBroadcast
                 } ?: continue
@@ -429,8 +471,8 @@ class NetworkDiscovery @Inject constructor(
 
                         if (device.connectionState.isForcedDisconnect) continue
 
-                        // If already connected and not on loopback, don't re-connect
-                        if (device.connectionState.isConnectedOrConnecting && device.address != "127.0.0.1") continue
+                        // If already connected, do not re-connect
+                        if (device.connectionState.isConnectedOrConnecting) continue
 
                         // Update device with discovered port if it differs
                         val updatedDevice = if (device.port != udpBroadcast.port) {
@@ -446,11 +488,16 @@ class NetworkDiscovery @Inject constructor(
                         networkManager.connectTo(connectionDetails)
                     }
                 }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w(TAG, "Error in device listener on port $udpPort, retrying: ${e.message}")
+                try {
+                    udpSocket?.close()
+                } catch (ignored: Exception) { }
+                udpSocket = null
+                kotlinx.coroutines.delay(2000)
             }
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            Log.e(TAG, "Error in device listener on port $udpPort", e)
         }
     }
 
