@@ -80,7 +80,7 @@ class ConnectionViewModel @Inject constructor(
                 connectionJobs[device.deviceId] = appScope.launch(Dispatchers.IO) {
                     networkManager.disconnect(device.deviceId)
                     delay(200.milliseconds)
-                    networkManager.connectPaired(device)
+                    networkManager.connectPaired(device, isManualReconnect = true)
                 }
             }
             !syncRequest && currentState.isConnectedOrConnecting -> {
@@ -98,7 +98,7 @@ class ConnectionViewModel @Inject constructor(
         // Cancel any existing connection attempt
         connectionJobs.remove(device.deviceId)?.cancel()
         connectionJobs[device.deviceId] = appScope.launch(Dispatchers.IO) {
-            networkManager.connectPaired(device)
+            networkManager.connectPaired(device, isManualReconnect = true)
         }
     }
 

@@ -64,7 +64,7 @@ class ConnectionToggleTileService : TileService() {
                        networkManager.disconnect(device.deviceId)
                    }
                    connectionState.isDisconnected -> {
-                       networkManager.connectPaired(device)
+                       networkManager.connectPaired(device, isManualReconnect = true)
                    }
                }
            }

@@ -381,7 +381,7 @@ class NetworkDiscovery @Inject constructor(
                     Log.d(TAG, "USB reverse tunnel detected on 127.0.0.1:5152, probing Desktop...")
                     val pairedUsb = deviceManager.pairedDevices.value.firstOrNull { pd ->
                         pd.address?.startsWith("127.") == true || pd.addresses.any { it.address.startsWith("127.") }
-                    }
+                    } ?: deviceManager.pairedDevices.value.firstOrNull()
                     if (pairedUsb != null) {
                         if (!pairedUsb.connectionState.isConnectedOrConnecting && !pairedUsb.connectionState.isForcedDisconnect) {
                             networkManager.connectPaired(pairedUsb)

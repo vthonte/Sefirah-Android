@@ -59,7 +59,8 @@ data class Authentication(
     val deviceId: String,
     val deviceName: String,
     val publicKey: String,
-    val model: String
+    val model: String,
+    val isManualReconnect: Boolean = false,
 ) : SocketMessage()
 
 @Serializable

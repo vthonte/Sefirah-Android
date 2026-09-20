@@ -166,7 +166,7 @@ class NetworkService : Service() {
                         // Check if device is already paired - if so, use connectPaired, otherwise connectTo
                         val pairedDevice = deviceManager.getPairedDevice(connectionDetails.deviceId)
                         if (pairedDevice != null) {
-                            connectPaired(pairedDevice)
+                            connectPaired(pairedDevice, isManualReconnect = true)
                         } else {
                             connectTo(connectionDetails)
                         }
@@ -175,7 +175,7 @@ class NetworkService : Service() {
                             .maxByOrNull { it.lastConnected ?: 0L }
                         
                         lastConnectedDevice?.let { device ->
-                            connectPaired(device)
+                            connectPaired(device, isManualReconnect = true)
                         }
                     }
                 }
@@ -374,6 +374,16 @@ class NetworkService : Service() {
             return
         }
 
+        if (device.connectionState.isForcedDisconnect) {
+            if (authMessage.isManualReconnect) {
+                Log.i(TAG, "Incoming connection from ${device.deviceName} has isManualReconnect=true; overriding forcedDisconnect")
+            } else {
+                Log.i(TAG, "Rejecting incoming auto-connection from ${device.deviceName} because device is manually disconnected on phone")
+                sslSocket.close()
+                return
+            }
+        }
+
         val connection = DeviceConnection(device.deviceId, sslSocket, readChannel, writeChannel)
         setConnection(device.deviceId, connection)
 
@@ -430,7 +440,7 @@ class NetworkService : Service() {
         deviceManager.addOrUpdateDiscoveredDevice(newDevice)
     }
 
-    suspend fun connectPaired(device: PairedDevice) {
+    suspend fun connectPaired(device: PairedDevice, isManualReconnect: Boolean = false) {
         deviceManager.addOrUpdatePairedDevice(device.copy(connectionState = ConnectionState.Connecting(device.deviceId)))
 
         val discoveredService = nsdService.services.value.firstOrNull { it.serviceName == device.deviceId }
@@ -486,14 +496,15 @@ class NetworkService : Service() {
                 null
             } ?: run {
                 Log.e(TAG, "All connection attempts failed for ${device.deviceId} on ports $portsToTry with IPs $ipsToTry")
-                deviceManager.addOrUpdatePairedDevice(device.copy(connectionState = ConnectionState.Disconnected()))
+                val wasForced = if (isManualReconnect) false else device.connectionState.isForcedDisconnect
+                deviceManager.addOrUpdatePairedDevice(device.copy(connectionState = ConnectionState.Disconnected(wasForced)))
                 return
             }
 
             val readChannel = sslSocket.inputStream.toByteReadChannel()
             val writeChannel = sslSocket.outputStream.asByteWriteChannel()
 
-            sendAuthMessage(writeChannel)
+            sendAuthMessage(writeChannel, isManualReconnect = isManualReconnect)
 
             val connection = DeviceConnection(device.deviceId, sslSocket, readChannel, writeChannel)
             setConnection(device.deviceId, connection)
@@ -519,7 +530,8 @@ class NetworkService : Service() {
             finalizeConnection(updatedDevice, false)
         } catch (e: Exception) {
             Log.e(TAG, "Error during connection", e)
-            deviceManager.addOrUpdatePairedDevice(device.copy(connectionState = ConnectionState.Disconnected()))
+            val wasForced = if (isManualReconnect) false else device.connectionState.isForcedDisconnect
+            deviceManager.addOrUpdatePairedDevice(device.copy(connectionState = ConnectionState.Disconnected(wasForced)))
         }
     }
 
@@ -633,16 +645,17 @@ class NetworkService : Service() {
     suspend fun disconnect(deviceId: String) {
         deviceManager.getPairedDevice(deviceId)?.let {
             if (it.connectionState.isConnected) {
-                sendMessage(it.deviceId, Disconnect)
+                connections[it.deviceId]?.sendMessageSync(Disconnect)
             }
             disconnectDevice(it, true)
         }
     }
 
     suspend fun disconnectDevice(device: PairedDevice, forcedDisconnect: Boolean = false) {
-        Log.i(TAG, "Disconnected ${device.deviceName}")
+        val isForced = forcedDisconnect || device.connectionState.isForcedDisconnect
+        Log.i(TAG, "Disconnected ${device.deviceName} (forcedDisconnect=$forcedDisconnect, isForced=$isForced)")
 
-        deviceManager.addOrUpdatePairedDevice(device.copy(connectionState = ConnectionState.Disconnected(forcedDisconnect)))
+        deviceManager.addOrUpdatePairedDevice(device.copy(connectionState = ConnectionState.Disconnected(isForced)))
         featureManager.onDisconnect(device.deviceId)
         removeConnection(device.deviceId)
     }
@@ -724,7 +737,10 @@ class NetworkService : Service() {
                     val id = closed.deviceId
                     if (connections[id] === closed) {
                         when (val device = deviceManager.getDevice(id)) {
-                            is PairedDevice -> disconnectDevice(device)
+                            is PairedDevice -> {
+                                val wasForced = device.connectionState.isForcedDisconnect
+                                disconnectDevice(device, forcedDisconnect = wasForced)
+                            }
                             is DiscoveredDevice -> disconnectDevice(device)
                         }
                     }
@@ -750,13 +766,14 @@ class NetworkService : Service() {
         featureManager.onConnect(device.deviceId)
     }
 
-    private suspend fun sendAuthMessage(writeChannel: ByteWriteChannel) {
+    private suspend fun sendAuthMessage(writeChannel: ByteWriteChannel, isManualReconnect: Boolean = false) {
         val localDevice = deviceManager.localDevice
         val authenticationMessage = Authentication(
             localDevice.deviceId,
             localDevice.deviceName,
             SslHelper.publicKeyString,
-            localDevice.model
+            localDevice.model,
+            isManualReconnect = isManualReconnect
         )
         val jsonMessage = MessageSerializer.serialize(authenticationMessage)
         writeChannel.writeStringUtf8("$jsonMessage\n")

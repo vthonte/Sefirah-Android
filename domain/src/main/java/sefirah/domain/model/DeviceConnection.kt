@@ -30,18 +30,22 @@ class DeviceConnection(
 
     fun sendMessage(message: SocketMessage) {
         scope.launch {
-            mutex.withLock {
-                try {
-                    writeChannel?.let { channel ->
-                        MessageSerializer.serialize(message)?.let { jsonMessage ->
-                            channel.writeStringUtf8(jsonMessage)
-                            channel.writeStringUtf8("\n")
-                            channel.flush()
-                        }
+            sendMessageSync(message)
+        }
+    }
+
+    suspend fun sendMessageSync(message: SocketMessage) {
+        mutex.withLock {
+            try {
+                writeChannel?.let { channel ->
+                    MessageSerializer.serialize(message)?.let { jsonMessage ->
+                        channel.writeStringUtf8(jsonMessage)
+                        channel.writeStringUtf8("\n")
+                        channel.flush()
                     }
-                } catch (ex: Exception) {
-                    Log.e(TAG, "Failed to send message to $deviceId", ex)
                 }
+            } catch (ex: Exception) {
+                Log.e(TAG, "Failed to send sync message to $deviceId", ex)
             }
         }
     }

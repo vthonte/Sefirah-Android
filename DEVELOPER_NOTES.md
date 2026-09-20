@@ -54,16 +54,28 @@ In `NetworkService.connectPaired(device)`:
 
 ---
 
-## 4. Manual Disconnect & Reconnect Override
+## 4. Manual Disconnect & Reconnect Override Protocol
+1. **The Auto-Reconnect Problem & Fix**:
+   - When Desktop disconnects, it sends a synchronous `Disconnect` message before closing the socket.
+   - When Phone disconnects in `NetworkService.disconnect()`, it sends `Disconnect` synchronously using `sendMessageSync(Disconnect)` so the message flushes over TLS before the connection is closed.
+   - In `MessageHandler.kt`, `is Disconnect -> disconnectDevice(device, forcedDisconnect = true)`.
+   - In `disconnectDevice` and `onClose`, involuntary socket drops preserve the forced-disconnect status:
+     `val isForced = forcedDisconnect || device.connectionState.isForcedDisconnect`.
+     This ensures network drops never clear an intentional manual disconnect!
+   - In `probeUsbDevice()`, if any paired device exists and is forced disconnected, it will **not** attempt to probe or auto-connect.
 
-### Manual Disconnect Behavior
-- When the user manually disconnects on either device, the device enters `ConnectionState.Disconnected(forcedDisconnect = true)`.
-- Background automatic discovery and probing pause while `forcedDisconnect` is true, respecting the user's intent.
-
-### Nominal Reconnect Override from Either Device
-- **Reconnecting from Phone**: Tapping "Connect" or "Sync" in `ConnectionViewModel.kt` calls `connectPaired(device)`, which sets `ConnectionState.Connecting`, clearing `forcedDisconnect`.
-- **Reconnecting from Laptop**: When Desktop connects to Phone, `authenticatePairedDevice` sets `ConnectionState.Connected`, which clears `forcedDisconnect` on the phone.
-- Result: Tapping Connect on either device brings both devices to "Connected" without touching the other device.
+2. **Mutual Manual Reconnect Override Handshake**:
+   - `Authentication` includes `val isManualReconnect: Boolean = false`.
+   - When Phone user taps "Connect" or "Sync" (`ConnectionViewModel.kt` or `ConnectionToggleTileService.kt`):
+     - Sets `isManualReconnect = true` when calling `connectPaired(device, isManualReconnect = true)`.
+     - Sends `Authentication(..., isManualReconnect = true)` to Laptop.
+     - Laptop recognizes the manual intent, clears its `IsForcedDisconnect`, and accepts the connection.
+   - When Laptop user clicks "Connect" on PC:
+     - Laptop connects and sends `Authentication(IsManualReconnect = true)`.
+     - In `NetworkService.kt` `authenticatePairedDevice`, Phone checks `if (device.connectionState.isForcedDisconnect)`:
+       - If `authMessage.isManualReconnect == true`, Phone allows the connection, clears `forcedDisconnect`, and transitions to `Connected`.
+       - If `isManualReconnect == false` (background probe), Phone rejects the connection and closes the socket.
+   - Result: Users can disconnect from either device, and reconnect from either device at any time, without touching the other device.
 
 ---
 
