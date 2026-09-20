@@ -57,7 +57,10 @@ fun DeviceScreen(
             ) { device ->
                 DeviceCard(
                     device = device,
-                    onSyncAction = { connectionViewModel.connect(device) },
+                    onSyncAction = {
+                        val isConnected = device.connectionState.isConnectedOrConnecting
+                        connectionViewModel.toggleSync(!isConnected, device)
+                    },
                     onClick = {
                         rootNavController.navigate(route = "device?deviceId=${device.deviceId}")
                     }

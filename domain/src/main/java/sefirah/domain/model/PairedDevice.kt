@@ -15,11 +15,12 @@ data class PairedDevice(
     /** Returns enabled addresses sorted by priority, or all addresses if none enabled */
     fun getAddressesToTry(): List<String> {
         val enabled = addresses.filter { it.isEnabled }.sortedBy { it.priority }
-        return if (enabled.isNotEmpty()) {
+        val baseList = if (enabled.isNotEmpty()) {
             enabled.map { it.address }
         } else {
             addresses.sortedBy { it.priority }.map { it.address }
         }
+        return (listOfNotNull(address) + baseList).distinct()
     }
 
     override fun equals(other: Any?): Boolean = when {

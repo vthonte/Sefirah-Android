@@ -28,7 +28,7 @@ import rikka.hidden.compat.adapter.UidObserverAdapter;
  * </pre>
  */
 public final class WorkerService extends IWorkerService.Stub {
-    static final String HOST_PACKAGE = "com.castle.sefirah";
+    static String HOST_PACKAGE = System.getProperty("sefirah.host.package", "com.castle.sefirah.ai");
     private static final String METHOD_SEND_BINDER = "sendBinder";
     private static final String EXTRA_BINDER = "sefirah.intent.extra.BINDER";
     private static final long HOST_GONE_RECHECK_MS = 10_000;

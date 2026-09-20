@@ -91,7 +91,7 @@ fun SyncScreen(
                         ) {
                             items(
                                 items = discoveredDevices.values.toList(),
-                                key = { it.deviceName },
+                                key = { it.deviceId },
                             ) { device ->
                                 DeviceItem(
                                     device = device,

@@ -24,9 +24,11 @@ class SocketFactoryImpl @Inject constructor() : SocketFactory {
         return try {
             Log.d(TAG, "Connecting to $address:$port")
             val sslContext = SslHelper.sslContext(certificate)
-            withTimeoutOrNull(3000L.milliseconds) {
+            withTimeoutOrNull(2500L.milliseconds) {
                 withContext(Dispatchers.IO) {
-                    (sslContext.socketFactory.createSocket(address, port) as SSLSocket).apply {
+                    val rawSocket = sslContext.socketFactory.createSocket() as SSLSocket
+                    rawSocket.connect(java.net.InetSocketAddress(address, port), 2000)
+                    rawSocket.apply {
                         startHandshake()
                     }
                 }

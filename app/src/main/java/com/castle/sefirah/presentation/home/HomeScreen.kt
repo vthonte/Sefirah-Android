@@ -79,7 +79,7 @@ fun HomeScreen(
                         },
                         onSyncAction = { device ->
                             val deviceConnectionState = device.connectionState
-                            connectionViewModel.toggleSync(!deviceConnectionState.isConnectedOrConnecting)
+                            connectionViewModel.toggleSync(!deviceConnectionState.isConnectedOrConnecting, device)
                         },
                         onDeviceClick = { device ->
                             rootNavController.navigate(route = "device?deviceId=${device.deviceId}")

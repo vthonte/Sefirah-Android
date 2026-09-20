@@ -44,6 +44,7 @@ class NotificationFeature @Inject constructor(
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var isListenerConnected : Boolean = false
+    private val recentNotifications = java.util.concurrent.ConcurrentHashMap<String, Pair<Int, Long>>()
 
     private lateinit var listener: NotificationListenerService
 
@@ -89,6 +90,7 @@ class NotificationFeature @Inject constructor(
     }
 
     override fun onNotificationRemoved(notification: StatusBarNotification) {
+        recentNotifications.remove(notification.key)
         // to remove the notification on the desktop
         val removeNotificationMessage = NotificationInfo(
             appPackage = notification.packageName,
@@ -182,11 +184,16 @@ class NotificationFeature @Inject constructor(
             return
         }
 
+        val isProgress = notification.category == Notification.CATEGORY_PROGRESS
+            || notification.extras.getInt(Notification.EXTRA_PROGRESS_MAX, 0) > 0
+            || notification.extras.getBoolean(Notification.EXTRA_PROGRESS_INDETERMINATE, false)
+
         if ((notification.flags and Notification.FLAG_ONGOING_EVENT) != 0
             || (notification.flags and Notification.FLAG_FOREGROUND_SERVICE) != 0
             || (notification.flags and Notification.FLAG_LOCAL_ONLY) != 0
             || (notification.flags and NotificationCompat.FLAG_GROUP_SUMMARY) != 0
-            || notification.isMediaStyle()) {
+            || notification.isMediaStyle()
+            || isProgress) {
             return
         }
 
@@ -211,10 +218,28 @@ class NotificationFeature @Inject constructor(
             }
         }
 
-        if ("com.castle.sefirah" == packageName) {
-            // Don't send our own notifications
+        if (packageName == context.packageName || packageName == "com.castle.sefirah" || packageName == "com.castle.sefirah.ai") {
+            // Don't send our own notifications or sibling Sefirah notifications
             return
         }
+
+        val title = getSpannableText(notification.extras.getCharSequence(Notification.EXTRA_TITLE))
+            ?: getSpannableText(notification.extras.getCharSequence(Notification.EXTRA_TITLE_BIG))
+
+        if (title.isNullOrEmpty()) return
+
+        val text = getSpannableText(notification.extras.getCharSequence(Notification.EXTRA_TEXT))
+            ?: getSpannableText(notification.extras.getCharSequence(Notification.EXTRA_BIG_TEXT))
+            ?: getSpannableText(notification.extras.getCharSequence(Notification.EXTRA_SUB_TEXT))
+
+        val notificationKey = sbn.key
+        val contentHash = (title + (text ?: "")).hashCode()
+        val now = System.currentTimeMillis()
+        val last = recentNotifications[notificationKey]
+        if (last != null && last.first == contentHash && (now - last.second) < 3000L) {
+            return
+        }
+        recentNotifications[notificationKey] = Pair(contentHash, now)
 
         scope.launch {
             // Get app icon
@@ -233,27 +258,10 @@ class NotificationFeature @Inject constructor(
                 null
             }
 
-            val notificationKey = sbn.key
-
             // Get the notification large icon
             val largeIcon = notification.getLargeIcon()?.let { icon ->
                 icon.loadDrawable(context)?.let { drawableToBase64(it) }
             }
-
-            // Get picture (if available)
-//            val picture = notification.extras.get(Notification.EXTRA_PICTURE)?.let { pictureBitmap ->
-//                bitmapToBase64(pictureBitmap as Bitmap)
-//            }
-
-            // Use the utility function to get text from SpannableString
-            val title = getSpannableText(notification.extras.getCharSequence(Notification.EXTRA_TITLE))
-                ?: getSpannableText(notification.extras.getCharSequence(Notification.EXTRA_TITLE_BIG))
-
-            if (title.isNullOrEmpty()) return@launch
-
-            val text = getSpannableText(notification.extras.getCharSequence(Notification.EXTRA_TEXT))
-                ?: getSpannableText(notification.extras.getCharSequence(Notification.EXTRA_BIG_TEXT))
-                ?: getSpannableText(notification.extras.getCharSequence(Notification.EXTRA_SUB_TEXT))
 
             val messages = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
                 notification.extras.getParcelableArray(Notification.EXTRA_MESSAGES)?.mapNotNull {

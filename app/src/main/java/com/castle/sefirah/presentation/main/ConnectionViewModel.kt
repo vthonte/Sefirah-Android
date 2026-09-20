@@ -66,8 +66,9 @@ class ConnectionViewModel @Inject constructor(
         }
     }
 
-    fun toggleSync(syncRequest: Boolean) {
-        val device = selectedDevice.value ?: return
+    fun toggleSync(syncRequest: Boolean, targetDevice: PairedDevice? = null) {
+        val device = targetDevice ?: selectedDevice.value ?: return
+        selectDevice(device)
         _isRefreshing.value = true
         
         val currentState = device.connectionState
@@ -93,6 +94,7 @@ class ConnectionViewModel @Inject constructor(
     }
 
     fun connect(device: PairedDevice) {
+        selectDevice(device)
         // Cancel any existing connection attempt
         connectionJobs.remove(device.deviceId)?.cancel()
         connectionJobs[device.deviceId] = appScope.launch(Dispatchers.IO) {

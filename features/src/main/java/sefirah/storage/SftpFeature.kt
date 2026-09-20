@@ -2,6 +2,7 @@ package sefirah.storage
 
 import android.content.Context
 import android.os.Build
+import android.os.Environment
 import android.os.storage.StorageManager
 import android.util.Log
 import androidx.annotation.RequiresApi
@@ -249,6 +250,17 @@ class SftpFeature @Inject constructor(
             pathNames.add(sv.getDescription(context))
         }
 
+        if (paths.isEmpty()) {
+            val defaultPath = Environment.getExternalStorageDirectory()
+            if (defaultPath != null && defaultPath.exists()) {
+                paths.add(defaultPath.path)
+                pathNames.add("Internal Storage")
+            } else {
+                paths.add("/storage/emulated/0")
+                pathNames.add("Internal Storage")
+            }
+        }
+
         server.keyPairProvider = PfxKeyPairProvider()
         server.publickeyAuthenticator = PublickeyAuthenticator { _, _, _ -> true }
         server.passwordAuthenticator = PasswordAuthenticator { user, password, _ ->
@@ -273,10 +285,10 @@ class SftpFeature @Inject constructor(
                 Log.i(TAG, "SFTP server started on port $port")
                 return serverInfo
             } catch (e: Exception) {
-                Log.e(TAG, "Failed to start SFTP server on port $port", e)
-                throw e
+                Log.w(TAG, "Port $port unavailable for SFTP server: ${e.message}")
             }
         }
+        Log.e(TAG, "Failed to start SFTP server on any port in range $PORT_RANGE")
         return null
     }
 

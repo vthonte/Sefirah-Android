@@ -22,7 +22,8 @@ object QrCodeParser {
         parsePairDeepLink(qrCodeData.trim().toUri())
 
     fun parsePairDeepLink(uri: Uri): QrCodeConnectionData? {
-        if (uri.scheme != SCHEME || uri.host != PAIR_HOST) {
+        val validSchemes = setOf(SCHEME, "sefirah-ai", "aikyam")
+        if (uri.scheme !in validSchemes || uri.host != PAIR_HOST) {
             return null
         }
 

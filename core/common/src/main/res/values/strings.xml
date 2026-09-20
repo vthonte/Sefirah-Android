@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources xmlns:tools="http://schemas.android.com/tools" tools:ignore="MissingTranslation">
     <!-- App -->
-    <string name="app_name" translatable="false">Sefirah</string>
+    <string name="app_name" translatable="false">Sefirah AI</string>
     <string name="version">Version</string>
     <string name="share_deep_link">Share to Desktop</string>
     <string name="battery_level">%1$d%%</string>

@@ -249,8 +249,6 @@ class NetworkDiscovery @Inject constructor(
 
                         when (val device = deviceManager.getDevice(deviceId)) {
                             is PairedDevice -> {
-                                if (device.connectionState.isConnectedOrConnecting || device.connectionState.isForcedDisconnect) return@forEach
-
                                 // Merge discovered IPs with existing entries
                                 val existingAddresses = device.addresses.map { it.address }.toSet()
                                 val newEntries = addresses
@@ -266,6 +264,13 @@ class NetworkDiscovery @Inject constructor(
                                 } else {
                                     device
                                 }
+
+                                if (newEntries.isNotEmpty() || device.port != port) {
+                                    deviceManager.addOrUpdatePairedDevice(updatedDevice)
+                                }
+
+                                if (device.connectionState.isConnectedOrConnecting || device.connectionState.isForcedDisconnect) return@forEach
+
                                 networkManager.connectPaired(updatedDevice)
                             }
                             is DiscoveredDevice -> return@forEach
@@ -296,13 +301,14 @@ class NetworkDiscovery @Inject constructor(
                     udpSocket = socketFactory.udpSocket(udpPort)
                 }
 
-                val broadcastList = deviceManager.pairedDevices.value
+                val broadcastList = (deviceManager.pairedDevices.value
                     .flatMap { device -> 
-                        device.addresses
-                            .filter { it.isEnabled }
-                            .map { it.address }
+                        val addrs = device.addresses.filter { it.isEnabled }.ifEmpty { device.addresses }.map { it.address }
+                        listOfNotNull(device.address) + addrs
                     }
-                    .distinct() + "255.255.255.255"
+                    .map { it.trim().removePrefix("/").substringBefore(':').trim() }
+                    .filter { it.isNotBlank() && !it.contains(":") }
+                    .distinct() + "255.255.255.255").distinct()
 
                 broadcastList.forEach { hostname ->
                     try {
@@ -331,12 +337,17 @@ class NetworkDiscovery @Inject constructor(
 
                 if (udpBroadcast.deviceId == deviceManager.localDevice.deviceId) continue
                 Log.d(TAG, "Received UDP broadcast from ${udpBroadcast.deviceName}")
+
+                val rawSenderIp = (datagram.address as? InetSocketAddress)?.hostname
+                    ?: datagram.address.toString().substringBefore(':').removePrefix("/")
+                val senderIp = rawSenderIp.trim().removePrefix("/").substringBefore(':').trim()
+                if (senderIp.isBlank() || senderIp.contains(":")) continue
+
                 when (val device = deviceManager.getDevice(udpBroadcast.deviceId)) {
                     is PairedDevice -> {
                          if (device.connectionState.isConnectedOrConnecting || device.connectionState.isForcedDisconnect) continue
 
                         // Update IP addresses if new ones are found
-                        val senderIp = datagram.address.toString()
                         val existingAddresses = device.addresses.map { it.address }.toSet()
                         if (!existingAddresses.contains(senderIp)) {
                             try {
@@ -357,7 +368,6 @@ class NetworkDiscovery @Inject constructor(
                     }
                     null -> {
                         // New device
-                        val senderIp = datagram.address.toString()
                         val connectionDetails = ConnectionDetails(udpBroadcast.deviceId, udpBroadcast.port, listOf(senderIp))
                         networkManager.connectTo(connectionDetails)
                     }

@@ -24,6 +24,10 @@ import sefirah.domain.interfaces.DeviceManager
 import sefirah.domain.interfaces.NetworkManager
 import sefirah.network.NetworkDiscovery
 import javax.inject.Inject
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 
 @HiltViewModel
@@ -110,7 +114,14 @@ class SyncViewModel @Inject constructor(
                     networkManager.connectTo(connectionDetails)
                 }
 
-                val device = discoveredDevices.value[connectionDetails.deviceId] ?: return@launch
+                // Wait up to 5 seconds for the device to appear in discoveredDevices
+                val device = withTimeoutOrNull(5000.milliseconds) {
+                    discoveredDevices.filter { it.containsKey(connectionDetails.deviceId) }
+                        .first()[connectionDetails.deviceId]
+                } ?: run {
+                    Log.e(TAG, "Device ${connectionDetails.deviceId} did not appear in discoveredDevices after connectTo")
+                    return@launch
+                }
                 pair(device, rootNavController)
             } catch (e: Exception) {
                 Log.e(TAG, "Error connecting from QR code", e)

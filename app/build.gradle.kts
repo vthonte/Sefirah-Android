@@ -5,6 +5,19 @@ plugins {
     alias(libs.plugins.compose.compiler)
 }
 
+val appName = providers.gradleProperty("sefirah.appName")
+    .orElse(providers.gradleProperty("aikyam.appName"))
+    .getOrElse("Sefirah AI")
+val appId = providers.gradleProperty("sefirah.applicationId")
+    .orElse(providers.gradleProperty("aikyam.applicationId"))
+    .getOrElse("com.castle.sefirah.ai")
+val verName = providers.gradleProperty("sefirah.versionName")
+    .orElse(providers.gradleProperty("aikyam.versionName"))
+    .getOrElse("3.1.0")
+val verCode = providers.gradleProperty("sefirah.versionCode")
+    .orElse(providers.gradleProperty("aikyam.versionCode"))
+    .getOrElse("35").toInt()
+
 android {
     namespace = "com.castle.sefirah"
 
@@ -14,11 +27,12 @@ android {
 
 
     defaultConfig {
-        applicationId = "com.castle.sefirah"
+        applicationId = appId
 
-        versionCode = 35
-        versionName = "3.1.0"
+        versionCode = verCode
+        versionName = verName
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        buildConfigField("String", "APP_NAME", "\"$appName\"")
 
         externalNativeBuild {
             cmake {

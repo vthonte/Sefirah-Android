@@ -9,23 +9,26 @@ import android.os.RemoteException;
  * {@link IContentProvider#call} after {@code getContentProviderExternal},
  */
 final class ContentProviders {
-    private static final String AUTHORITY = "com.castle.sefirah.worker.bridge";
+    private static String getAuthority() {
+        return WorkerService.HOST_PACKAGE + ".worker.bridge";
+    }
 
     private ContentProviders() {
     }
 
     static Bundle call(String method, String arg, Bundle extras) {
-        IContentProvider provider = ActivityManagers.getContentProviderExternal(AUTHORITY);
+        String authority = getAuthority();
+        IContentProvider provider = ActivityManagers.getContentProviderExternal(authority);
         if (provider == null) {
             return null;
         }
         try {
             return callCompat(provider, method, arg, extras);
         } catch (RemoteException e) {
-            Ln.e("IContentProvider.call failed for " + AUTHORITY + "/" + method, e);
+            Ln.e("IContentProvider.call failed for " + authority + "/" + method, e);
             return null;
         } finally {
-            ActivityManagers.removeContentProviderExternal(AUTHORITY);
+            ActivityManagers.removeContentProviderExternal(authority);
         }
     }
 
@@ -35,21 +38,22 @@ final class ContentProviders {
             String arg,
             Bundle extras
     ) throws RemoteException {
+        String authority = getAuthority();
         String pkg = FakeContext.PACKAGE_NAME;
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             return provider.call(
                     FakeContext.get().getAttributionSource(),
-                    AUTHORITY,
+                    authority,
                     method,
                     arg,
                     extras
             );
         }
         if (Build.VERSION.SDK_INT == 30) {
-            return provider.call(pkg, null, AUTHORITY, method, arg, extras);
+            return provider.call(pkg, null, authority, method, arg, extras);
         }
         if (Build.VERSION.SDK_INT == 29) {
-            return provider.call(pkg, AUTHORITY, method, arg, extras);
+            return provider.call(pkg, authority, method, arg, extras);
         }
         return provider.call(pkg, method, arg, extras);
     }

@@ -6,11 +6,8 @@ import android.net.nsd.NsdManager
 import android.net.nsd.NsdServiceInfo
 import android.net.wifi.WifiManager
 import android.os.Build
-import android.os.Handler
-import android.os.Looper
 import android.os.ext.SdkExtensions
 import android.util.Log
-import androidx.annotation.RequiresExtension
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -66,6 +63,17 @@ class NsdService @Inject constructor(val context: Context) {
             nsdManager.stopServiceDiscovery(discoveryListener)
             multicastLock.release()
             discoveryListener = null
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE
+                && SdkExtensions.getExtensionVersion(Build.VERSION_CODES.TIRAMISU) >= 7) {
+                activeCallbacks.values.forEach { callback ->
+                    try {
+                        nsdManager.unregisterServiceInfoCallback(callback)
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Error unregistering callback during stopDiscovery: ${e.message}")
+                    }
+                }
+                activeCallbacks.clear()
+            }
             Log.d(TAG, "Stopped service discovery")
         } catch (e: Exception) {
             Log.e(TAG, "Unexpected error stopping discovery: ${e.message}", e)
@@ -139,25 +147,36 @@ class NsdService @Inject constructor(val context: Context) {
                     try {
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE
                             && SdkExtensions.getExtensionVersion(Build.VERSION_CODES.TIRAMISU) >= 7) {
-                            // Unregister previous ServiceInfoCallback if registered
-                            try {
-                                nsdManager.unregisterServiceInfoCallback(serviceInfoCallback)
-                                Log.d(TAG, "Successfully unregistered previous ServiceInfoCallback")
-                            } catch (e: Exception) {
-                                Log.e(TAG, "No ServiceInfoCallback was registered: ${e.message}")
-                            }
+                            if (activeCallbacks.containsKey(service.serviceName)) return@onServiceFound
 
-                            // Add a small delay to avoid race conditions
-                            Handler(Looper.getMainLooper()).postDelayed({
-                                try {
-                                    nsdManager.registerServiceInfoCallback(service, executor, serviceInfoCallback)
-                                    Log.d(TAG, "Successfully registered ServiceInfoCallback")
-                                } catch (e: IllegalArgumentException) {
-                                    Log.e(TAG, "Listener already in use or issue in registration: ${e.message}")
-                                } catch (e: Exception) {
-                                    Log.e(TAG, "Error registering listener: ${e.message}")
+                            val callback = object : NsdManager.ServiceInfoCallback {
+                                override fun onServiceInfoCallbackRegistrationFailed(errorCode: Int) {
+                                    Log.e(TAG, "ServiceInfoCallback registration failed for ${service.serviceName}: $errorCode")
+                                    activeCallbacks.remove(service.serviceName)
                                 }
-                            }, 500)
+
+                                override fun onServiceUpdated(serviceInfo: NsdServiceInfo) {
+                                    Log.d(TAG, "Service updated: $serviceInfo")
+                                    try {
+                                        _services.value = (_services.value + serviceInfo).distinctBy { it.serviceName }
+                                    } catch (e: Exception) {
+                                        Log.e(TAG, "Failed to parse service info: ${e.message}")
+                                    }
+                                }
+
+                                override fun onServiceLost() {
+                                    Log.e(TAG, "Service lost callback for ${service.serviceName}")
+                                    activeCallbacks.remove(service.serviceName)
+                                    _services.value = _services.value.filter { it.serviceName != service.serviceName }
+                                }
+
+                                override fun onServiceInfoCallbackUnregistered() {
+                                    Log.d(TAG, "ServiceInfoCallback unregistered: ${service.serviceName}")
+                                }
+                            }
+                            activeCallbacks[service.serviceName] = callback
+                            nsdManager.registerServiceInfoCallback(service, executor, callback)
+                            Log.d(TAG, "Successfully registered ServiceInfoCallback for ${service.serviceName}")
                         } else {
                             val resolveListener = createResolveListener()
                             nsdManager.resolveService(service, resolveListener)
@@ -172,6 +191,16 @@ class NsdService @Inject constructor(val context: Context) {
 
             override fun onServiceLost(service: NsdServiceInfo) {
                 Log.e(TAG, "Service lost: $service")
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE
+                    && SdkExtensions.getExtensionVersion(Build.VERSION_CODES.TIRAMISU) >= 7) {
+                    activeCallbacks.remove(service.serviceName)?.let { callback ->
+                        try {
+                            nsdManager.unregisterServiceInfoCallback(callback)
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Error unregistering callback for lost service: ${e.message}")
+                        }
+                    }
+                }
                 _services.value = _services.value.filter { it.serviceName != service.serviceName }
             }
 
@@ -205,39 +234,7 @@ class NsdService @Inject constructor(val context: Context) {
         }
     }
 
-    // ServiceInfoCallback for API level 34+
-    private val serviceInfoCallback by lazy {
-        @RequiresExtension(extension = Build.VERSION_CODES.TIRAMISU, version = 7)
-        object : NsdManager.ServiceInfoCallback {
-            private var currentMonitoredService: NsdServiceInfo? = null
-
-            override fun onServiceInfoCallbackRegistrationFailed(errorCode: Int) {
-                Log.e(TAG, "ServiceInfoCallback registration failed: $errorCode")
-            }
-
-            override fun onServiceUpdated(serviceInfo: NsdServiceInfo) {
-                Log.d(TAG, "Service updated: $serviceInfo")
-                currentMonitoredService = serviceInfo  // Store the current service
-                try {
-                    _services.value = (_services.value + serviceInfo).distinctBy { it.serviceName }
-                } catch (e: Exception) {
-                    Log.e(TAG, "Failed to parse service info: ${e.message}")
-                }
-            }
-
-            override fun onServiceLost() {
-                Log.e(TAG, "Service lost")
-                currentMonitoredService?.let { lostService ->
-                    _services.value = _services.value.filter { it.serviceName != lostService.serviceName }
-                }
-            }
-
-            override fun onServiceInfoCallbackUnregistered() {
-                Log.d(TAG, "ServiceInfoCallback unregistered")
-                currentMonitoredService = null
-            }
-        }
-    }
+    private val activeCallbacks = java.util.concurrent.ConcurrentHashMap<String, NsdManager.ServiceInfoCallback>()
 
     companion object {
         private const val TAG = "NsdService"

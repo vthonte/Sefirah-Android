@@ -10,6 +10,7 @@ import android.content.IntentFilter
 import android.net.wifi.WifiManager
 import android.os.Binder
 import android.os.Build
+import android.os.ext.SdkExtensions
 import android.os.IBinder
 import android.util.Log
 import androidx.core.app.NotificationCompat
@@ -57,6 +58,7 @@ import sefirah.domain.model.DeviceInfo
 import sefirah.domain.model.Disconnect
 import sefirah.domain.model.DiscoveredDevice
 import sefirah.domain.model.PairMessage
+import sefirah.network.util.NetworkHelper
 import sefirah.domain.model.PairedDevice
 import sefirah.domain.model.PendingDeviceApproval
 import sefirah.domain.model.SocketMessage
@@ -119,6 +121,7 @@ class NetworkService : Service() {
     @Inject lateinit var bluetoothPairingHandler: BluetoothPairingHandler
 
     @Inject lateinit var playSoundFeature: PlaySoundFeature
+    @Inject lateinit var nsdService: NsdService
 
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val binder = LocalBinder()
@@ -374,15 +377,19 @@ class NetworkService : Service() {
         val connection = DeviceConnection(device.deviceId, sslSocket, readChannel, writeChannel)
         setConnection(device.deviceId, connection)
 
+        val cleanAddress = address.trim().removePrefix("/").substringBefore(':').trim()
+        val updatedAddresses = if (cleanAddress.isNotBlank()) {
+            val otherAddrs = device.addresses.filter { it.address.trim().removePrefix("/").substringBefore(':').trim() != cleanAddress }
+            listOf(AddressEntry(cleanAddress, isEnabled = true, priority = 0)) + otherAddrs
+        } else {
+            device.addresses
+        }
+
         val updatedDevice = device.copy(
             deviceName = authMessage.deviceName,
             lastConnected = System.currentTimeMillis(),
-            addresses = if (device.addresses.none { it.address == address }) {
-                device.addresses + AddressEntry(address)
-            } else {
-                device.addresses
-            },
-            address = address,
+            addresses = updatedAddresses,
+            address = cleanAddress.ifBlank { address },
             connectionState = ConnectionState.Connected,
         )
 
@@ -426,16 +433,47 @@ class NetworkService : Service() {
     suspend fun connectPaired(device: PairedDevice) {
         deviceManager.addOrUpdatePairedDevice(device.copy(connectionState = ConnectionState.Connecting(device.deviceId)))
 
-        val port = device.port ?: PORT_RANGE.first
+        val discoveredService = nsdService.services.value.firstOrNull { it.serviceName == device.deviceId }
+        val discoveredPort = discoveredService?.attributes?.get("serverPort")?.let { String(it, Charsets.UTF_8).toIntOrNull() }
+
+        val discoveredIps = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R &&
+            SdkExtensions.getExtensionVersion(Build.VERSION_CODES.TIRAMISU) >= 7
+        ) {
+            discoveredService?.hostAddresses?.mapNotNull { it.hostAddress }?.filter { it.isNotBlank() && !it.contains(":") } ?: emptyList()
+        } else {
+            listOfNotNull(discoveredService?.host?.hostAddress).filter { !it.contains(":") }
+        }
+
+        val portsToTry = listOfNotNull(discoveredPort, device.port, PORT_RANGE.first, PORT_RANGE.first + 1).distinct()
+
+        val myIp = NetworkHelper.localAddress ?: ""
+        val subnetPrefix = if (myIp.count { it == '.' } == 3) myIp.substringBeforeLast('.') + "." else null
+
+        val rawIps = (listOfNotNull(device.address) + discoveredIps + device.getAddressesToTry())
+            .map { it.trim().removePrefix("http://").removePrefix("https://").removePrefix("/").substringBefore(':').trim() }
+            .filter { it.isNotBlank() && !it.contains(":") && it != "255.255.255.255" && it != "0.0.0.0" && it != myIp }
+            .distinct()
+
+        val ipsToTry = rawIps.sortedWith(compareByDescending<String> { ip ->
+            if (subnetPrefix != null && ip.startsWith(subnetPrefix)) 2 else 0
+        }.thenByDescending { ip ->
+            if (ip == device.address?.trim()?.removePrefix("/")?.substringBefore(':')?.trim()) 1 else 0
+        })
 
         try {
+            var connectedPort = portsToTry.firstOrNull() ?: PORT_RANGE.first
             val sslSocket = run {
-                for (ip in device.getAddressesToTry()) {
-                    socketFactory.tcpClientSocket(ip, port, device.certificate)?.let { return@run it }
+                for (port in portsToTry) {
+                    for (ip in ipsToTry) {
+                        socketFactory.tcpClientSocket(ip, port, device.certificate)?.let { 
+                            connectedPort = port
+                            return@run it 
+                        }
+                    }
                 }
                 null
             } ?: run {
-                Log.e(TAG, "All connection attempts failed")
+                Log.e(TAG, "All connection attempts failed for ${device.deviceId} on ports $portsToTry with IPs $ipsToTry")
                 deviceManager.addOrUpdatePairedDevice(device.copy(connectionState = ConnectionState.Disconnected()))
                 return
             }
@@ -449,15 +487,23 @@ class NetworkService : Service() {
             setConnection(device.deviceId, connection)
 
             val remoteAddress = (sslSocket.remoteSocketAddress as? java.net.InetSocketAddress)?.address?.hostAddress ?: ""
+            val cleanRemote = remoteAddress.trim().removePrefix("/").substringBefore(':').trim()
+            val updatedAddresses = if (cleanRemote.isNotBlank()) {
+                val otherAddrs = device.addresses.filter { it.address.trim().removePrefix("/").substringBefore(':').trim() != cleanRemote }
+                listOf(AddressEntry(cleanRemote, isEnabled = true, priority = 0)) + otherAddrs
+            } else {
+                device.addresses
+            }
             val updatedDevice = device.copy(
                 lastConnected = System.currentTimeMillis(),
                 connectionState = ConnectionState.Connected,
-                port = port,
-                address = remoteAddress
+                port = connectedPort,
+                address = cleanRemote.ifBlank { remoteAddress },
+                addresses = updatedAddresses
             )
             deviceManager.addOrUpdatePairedDevice(updatedDevice)
 
-            Log.d(TAG, "Device ${updatedDevice.deviceId} connected")
+            Log.d(TAG, "Device ${updatedDevice.deviceId} connected on $remoteAddress:$connectedPort")
             finalizeConnection(updatedDevice, false)
         } catch (e: Exception) {
             Log.e(TAG, "Error during connection", e)

@@ -12,3 +12,10 @@ object AndroidConfig {
     val JavaVersion = GradleJavaVersion.VERSION_17
     val JvmTarget = KotlinJvmTarget.JVM_17
 }
+
+object AppConfig {
+    const val DEFAULT_APP_NAME = "Sefirah AI"
+    const val DEFAULT_APPLICATION_ID = "com.castle.sefirah.ai"
+    const val DEFAULT_VERSION_NAME = "3.1.0"
+    const val DEFAULT_VERSION_CODE = 35
+}
