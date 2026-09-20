@@ -463,8 +463,20 @@ class NetworkService : Service() {
         try {
             var connectedPort = portsToTry.firstOrNull() ?: PORT_RANGE.first
             val sslSocket = run {
+                // 1. Prioritize USB loopback (via adb reverse ports 5152 and 5150)
+                socketFactory.tcpClientSocket("127.0.0.1", 5152, device.certificate)?.let {
+                    connectedPort = 5152
+                    return@run it
+                }
+                socketFactory.tcpClientSocket("127.0.0.1", 5150, device.certificate)?.let {
+                    connectedPort = 5150
+                    return@run it
+                }
+
+                // 2. Fall back to discovered/configured Wi-Fi ports & IPs
                 for (port in portsToTry) {
                     for (ip in ipsToTry) {
+                        if (ip == "127.0.0.1") continue
                         socketFactory.tcpClientSocket(ip, port, device.certificate)?.let { 
                             connectedPort = port
                             return@run it 
@@ -518,10 +530,18 @@ class NetworkService : Service() {
 
         try {
             val sslSocket = run {
+                // Prioritize USB loopback if present in candidates or prefAddress
+                if (connectionDetails.prefAddress == "127.0.0.1" || connectionDetails.addresses.contains("127.0.0.1")) {
+                    socketFactory.tcpClientSocket("127.0.0.1", 5152)?.let { return@run it }
+                    socketFactory.tcpClientSocket("127.0.0.1", 5150)?.let { return@run it }
+                }
                 connectionDetails.prefAddress?.let { prefAddress ->
-                    socketFactory.tcpClientSocket(prefAddress, connectionDetails.port)?.let { return@run it }
+                    if (prefAddress != "127.0.0.1") {
+                        socketFactory.tcpClientSocket(prefAddress, connectionDetails.port)?.let { return@run it }
+                    }
                 }
                 for (ip in connectionDetails.addresses) {
+                    if (ip == "127.0.0.1") continue
                     socketFactory.tcpClientSocket(ip, connectionDetails.port)?.let { return@run it }
                 }
                 null

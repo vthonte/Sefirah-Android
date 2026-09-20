@@ -86,7 +86,12 @@ class NotificationFeature @Inject constructor(
 
 
     override fun onNotificationPosted(notification: StatusBarNotification) {
-        sendNotification(notification, NotificationInfoType.New, enabledDevices)
+        val type = if (recentNotifications.containsKey(notification.key)) {
+            NotificationInfoType.Active
+        } else {
+            NotificationInfoType.New
+        }
+        sendNotification(notification, type, enabledDevices)
     }
 
     override fun onNotificationRemoved(notification: StatusBarNotification) {
@@ -187,6 +192,7 @@ class NotificationFeature @Inject constructor(
         val isProgress = notification.category == Notification.CATEGORY_PROGRESS
             || notification.extras.getInt(Notification.EXTRA_PROGRESS_MAX, 0) > 0
             || notification.extras.getBoolean(Notification.EXTRA_PROGRESS_INDETERMINATE, false)
+            || notification.extras.getInt(Notification.EXTRA_PROGRESS, -1) >= 0
 
         if ((notification.flags and Notification.FLAG_ONGOING_EVENT) != 0
             || (notification.flags and Notification.FLAG_FOREGROUND_SERVICE) != 0
