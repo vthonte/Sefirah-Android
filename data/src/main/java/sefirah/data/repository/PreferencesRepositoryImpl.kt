@@ -237,7 +237,7 @@ class PreferencesRepositoryImpl @Inject constructor(
 
     override fun readRemoteStorageSettingsForDevice(deviceId: String): Flow<Boolean> {
         return datastore.data.map { preferences ->
-            preferences[deviceRemoteStorageKey(deviceId)] == true
+            preferences[deviceRemoteStorageKey(deviceId)] != false
         }
     }
 
@@ -272,7 +272,7 @@ class PreferencesRepositoryImpl @Inject constructor(
                 mediaSessionNotification = preferences[deviceMediaSessionNotificationKey(deviceId)] != false,
                 remoteVolumeControl = preferences[deviceRemoteVolumeControlKey(deviceId)] == true,
                 mediaPlayerControl = preferences[deviceMediaPlayerControlKey(deviceId)] != false,
-                remoteStorage = preferences[deviceRemoteStorageKey(deviceId)] == true,
+                remoteStorage = preferences[deviceRemoteStorageKey(deviceId)] != false,
                 playSound = preferences[devicePlaySoundKey(deviceId)] != false,
             )
         }

@@ -13,7 +13,6 @@ abstract class BoundFeature(
     protected abstract suspend fun onStop()
 
     final override suspend fun enable(deviceId: String) {
-        if (deviceId in enabledDevices) return
         if (enabledDevices.isEmpty()) {
             onStart()
         }

@@ -11,6 +11,6 @@ data class DevicePreferences(
     val mediaSessionNotification: Boolean = false,
     val remoteVolumeControl: Boolean = false,
     val mediaPlayerControl: Boolean = false,
-    val remoteStorage: Boolean = false,
+    val remoteStorage: Boolean = true,
     val playSound: Boolean = false,
 )

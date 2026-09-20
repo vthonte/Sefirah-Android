@@ -82,8 +82,21 @@ class SftpFeature @Inject constructor(
     }
 
     private fun sendServerInfo(deviceId: String) {
-        if (!SUPPORTS_NATIVEFS) return
-        serverInfo?.let { networkManager.sendMessage(deviceId, it) }
+        if (!SUPPORTS_NATIVEFS) {
+            Log.w(TAG, "Native FS not supported on this device")
+            return
+        }
+        if (serverInfo == null || !isRunning) {
+            Log.i(TAG, "Starting SFTP server before sending server info to device $deviceId...")
+            start()
+        }
+        val info = serverInfo
+        if (info != null) {
+            Log.i(TAG, "Sending SftpServerInfo to device $deviceId on port ${info.port}")
+            networkManager.sendMessage(deviceId, info)
+        } else {
+            Log.e(TAG, "Failed to send SftpServerInfo to device $deviceId: serverInfo is null")
+        }
     }
 
     private fun getRecycleBinDir(): Path {
