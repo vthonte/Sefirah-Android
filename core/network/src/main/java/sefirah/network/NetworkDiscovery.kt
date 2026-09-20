@@ -43,6 +43,7 @@ import sefirah.domain.model.ConnectionDetails
 import sefirah.domain.model.DiscoveredDevice
 import sefirah.domain.model.PairedDevice
 import sefirah.domain.model.UdpBroadcast
+import sefirah.network.util.NetworkHelper
 import sefirah.domain.util.MessageSerializer
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -338,9 +339,25 @@ class NetworkDiscovery @Inject constructor(
                                     deviceManager.addOrUpdatePairedDevice(updatedDevice)
                                 }
 
-                                if (device.connectionState.isConnectedOrConnecting || device.connectionState.isForcedDisconnect) return@forEach
+                                if (device.connectionState.isForcedDisconnect) return@forEach
 
-                                networkManager.connectPaired(updatedDevice)
+                                if (device.connectionState.isConnectedOrConnecting) {
+                                     // If connected on USB (127.0.0.1), stay on USB
+                                     if (device.address == "127.0.0.1") return@forEach
+
+                                     val myIp = NetworkHelper.localAddress ?: ""
+                                     val subnetPrefix = if (myIp.count { it == '.' } == 3) myIp.substringBeforeLast('.') + "." else null
+
+                                     val currentIsOnSubnet = subnetPrefix != null && device.address?.startsWith(subnetPrefix) == true
+                                     val discoveredHasMatchingSubnet = subnetPrefix != null && addresses.any { it.startsWith(subnetPrefix) }
+                                     if (!currentIsOnSubnet && discoveredHasMatchingSubnet) {
+                                         Log.i(TAG, "Device ${device.deviceName} was connected on stale subnet ${device.address}, switching to matching subnet in $addresses")
+                                     } else {
+                                         return@forEach
+                                     }
+                                 }
+
+                                 networkManager.connectPaired(updatedDevice)
                             }
                             is DiscoveredDevice -> return@forEach
                             null -> {
@@ -415,8 +432,11 @@ class NetworkDiscovery @Inject constructor(
                         pd.address?.startsWith("127.") == true || pd.addresses.any { it.address.startsWith("127.") }
                     } ?: deviceManager.pairedDevices.value.firstOrNull()
                     if (pairedUsb != null) {
-                        if (!pairedUsb.connectionState.isConnectedOrConnecting && !pairedUsb.connectionState.isForcedDisconnect) {
-                            networkManager.connectPaired(pairedUsb)
+                        if (!pairedUsb.connectionState.isForcedDisconnect) {
+                            if (!pairedUsb.connectionState.isConnectedOrConnecting || pairedUsb.address != "127.0.0.1") {
+                                Log.i(TAG, "Promoting device ${pairedUsb.deviceName} to USB loopback...")
+                                networkManager.connectPaired(pairedUsb)
+                            }
                         }
                     } else {
                         networkManager.connectTo(ConnectionDetails(deviceId = "", port = 5152, addresses = listOf("127.0.0.1"), prefAddress = "127.0.0.1"))
@@ -471,8 +491,19 @@ class NetworkDiscovery @Inject constructor(
 
                         if (device.connectionState.isForcedDisconnect) continue
 
-                        // If already connected, do not re-connect
-                        if (device.connectionState.isConnectedOrConnecting) continue
+                        // If already connected, do not re-connect unless on stale subnet
+                        if (device.connectionState.isConnectedOrConnecting) {
+                            if (device.address == "127.0.0.1") continue
+                            val myIp = NetworkHelper.localAddress ?: ""
+                            val subnetPrefix = if (myIp.count { it == '.' } == 3) myIp.substringBeforeLast('.') + "." else null
+                            val currentIsOnSubnet = subnetPrefix != null && device.address?.startsWith(subnetPrefix) == true
+                            val senderIsOnSubnet = subnetPrefix != null && senderIp.startsWith(subnetPrefix)
+                            if (!currentIsOnSubnet && senderIsOnSubnet) {
+                                Log.i(TAG, "Device ${device.deviceName} was on stale subnet ${device.address}, switching to $senderIp via UDP broadcast")
+                            } else {
+                                continue
+                            }
+                        }
 
                         // Update device with discovered port if it differs
                         val updatedDevice = if (device.port != udpBroadcast.port) {

@@ -739,6 +739,15 @@ class NetworkService : Service() {
                         when (val device = deviceManager.getDevice(id)) {
                             is PairedDevice -> {
                                 val wasForced = device.connectionState.isForcedDisconnect
+                                if (!wasForced) {
+                                    val fallback = device.addresses.filter { it.isEnabled && it.address != "127.0.0.1" && it.address.isNotBlank() }
+                                    if (fallback.isNotEmpty()) {
+                                        Log.i(TAG, "Connection closed for ${device.deviceName}. Attempting immediate failover to fallback Wi-Fi addresses...")
+                                        connections.remove(id)?.close()
+                                        connectPaired(device)
+                                        return@launch
+                                    }
+                                }
                                 disconnectDevice(device, forcedDisconnect = wasForced)
                             }
                             is DiscoveredDevice -> disconnectDevice(device)
