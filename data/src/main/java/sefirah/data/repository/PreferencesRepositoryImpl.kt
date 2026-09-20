@@ -167,7 +167,7 @@ class PreferencesRepositoryImpl @Inject constructor(
 
     override fun readCallStateSyncSettingsForDevice(deviceId: String): Flow<Boolean> {
         return datastore.data.map { preferences ->
-            preferences[deviceCallStateSyncKey(deviceId)] == true
+            preferences[deviceCallStateSyncKey(deviceId)] != false
         }
     }
 
@@ -217,7 +217,7 @@ class PreferencesRepositoryImpl @Inject constructor(
 
     override fun readRemoteVolumeControlSettingsForDevice(deviceId: String): Flow<Boolean> {
         return datastore.data.map { preferences ->
-            preferences[deviceRemoteVolumeControlKey(deviceId)] == true
+            preferences[deviceRemoteVolumeControlKey(deviceId)] != false
         }
     }
 
@@ -265,12 +265,12 @@ class PreferencesRepositoryImpl @Inject constructor(
                 clipboardSync = preferences[deviceClipboardSyncKey(deviceId)] != false,
                 messageSync = preferences[deviceMessageSyncKey(deviceId)] != false,
                 notificationSync = preferences[deviceNotificationSyncKey(deviceId)] != false,
-                callStateSync = preferences[deviceCallStateSyncKey(deviceId)] == true,
+                callStateSync = preferences[deviceCallStateSyncKey(deviceId)] != false,
                 callLogSync = preferences[deviceCallLogSyncKey(deviceId)] != false,
                 imageClipboard = preferences[deviceImageClipboardKey(deviceId)] != false,
                 mediaSession = preferences[deviceMediaSessionKey(deviceId)] != false,
                 mediaSessionNotification = preferences[deviceMediaSessionNotificationKey(deviceId)] != false,
-                remoteVolumeControl = preferences[deviceRemoteVolumeControlKey(deviceId)] == true,
+                remoteVolumeControl = preferences[deviceRemoteVolumeControlKey(deviceId)] != false,
                 mediaPlayerControl = preferences[deviceMediaPlayerControlKey(deviceId)] != false,
                 remoteStorage = preferences[deviceRemoteStorageKey(deviceId)] != false,
                 playSound = preferences[devicePlaySoundKey(deviceId)] != false,

@@ -1,16 +1,16 @@
 package sefirah.domain.model
 
 data class DevicePreferences(
-    val clipboardSync: Boolean = false,
-    val messageSync: Boolean = false,
-    val notificationSync: Boolean = false,
-    val callStateSync: Boolean = false,
-    val callLogSync: Boolean = false,
-    val imageClipboard: Boolean = false,
-    val mediaSession: Boolean = false,
-    val mediaSessionNotification: Boolean = false,
-    val remoteVolumeControl: Boolean = false,
-    val mediaPlayerControl: Boolean = false,
+    val clipboardSync: Boolean = true,
+    val messageSync: Boolean = true,
+    val notificationSync: Boolean = true,
+    val callStateSync: Boolean = true,
+    val callLogSync: Boolean = true,
+    val imageClipboard: Boolean = true,
+    val mediaSession: Boolean = true,
+    val mediaSessionNotification: Boolean = true,
+    val remoteVolumeControl: Boolean = true,
+    val mediaPlayerControl: Boolean = true,
     val remoteStorage: Boolean = true,
-    val playSound: Boolean = false,
+    val playSound: Boolean = true,
 )

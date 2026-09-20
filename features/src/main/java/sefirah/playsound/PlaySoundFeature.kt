@@ -6,6 +6,7 @@ import android.content.Intent
 import android.media.AudioAttributes
 import android.media.AudioManager
 import android.media.MediaPlayer
+import android.media.RingtoneManager
 import android.os.PowerManager
 import android.provider.Settings
 import android.util.Log
@@ -53,10 +54,9 @@ class PlaySoundFeature @Inject constructor(
     }
 
     fun handle(deviceId: String, message: PlaySound) {
-        if (deviceId !in activeDeviceIds) return
         if (message.isPlaying) {
             start(deviceId)
-        } else if (currentDeviceId == deviceId) {
+        } else if (currentDeviceId == deviceId || currentDeviceId == null) {
             stop()
         }
     }
@@ -100,7 +100,12 @@ class PlaySoundFeature @Inject constructor(
         releasePlayer()
         val player = MediaPlayer()
         return try {
-            player.setDataSource(context, Settings.System.DEFAULT_RINGTONE_URI)
+            val ringtoneUri = RingtoneManager.getActualDefaultRingtoneUri(context, RingtoneManager.TYPE_RINGTONE)
+                ?: RingtoneManager.getActualDefaultRingtoneUri(context, RingtoneManager.TYPE_ALARM)
+                ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
+                ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
+                ?: Settings.System.DEFAULT_RINGTONE_URI
+            player.setDataSource(context, ringtoneUri)
             player.setAudioAttributes(
                 AudioAttributes.Builder()
                     .setUsage(AudioAttributes.USAGE_ALARM)
