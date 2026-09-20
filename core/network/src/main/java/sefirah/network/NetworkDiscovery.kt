@@ -88,14 +88,11 @@ class NetworkDiscovery @Inject constructor(
 
         preferencesRepository.readTrustAllNetworks().collectLatest { trustAllNetworks ->
             this.trustAllNetworks = trustAllNetworks
+            register()
             if (this.trustAllNetworks) {
-                // If trust all networks is enabled, start all discovery services
                 startDiscovery()
-                unregister()
             } else {
-                // If trust all networks is disabled, stop discovery and start listening to network changes
                 stopDiscovery()
-                register()
             }
         }
     }
@@ -113,6 +110,12 @@ class NetworkDiscovery @Inject constructor(
 
                 launch { startDeviceListener() }
                 launch { startNSDDiscovery() }
+                launch {
+                    while (isActive) {
+                        broadcastDevice()
+                        kotlinx.coroutines.delay(10_000L)
+                    }
+                }
 
                 broadcastDevice()
             } catch (e: Exception) {
@@ -137,7 +140,7 @@ class NetworkDiscovery @Inject constructor(
     }
 
     fun register() {
-        if (!checkLocationPermissions(context) || trustAllNetworks) {
+        if (!checkLocationPermissions(context)) {
             startDiscovery()
             return
         }
@@ -186,12 +189,20 @@ class NetworkDiscovery @Inject constructor(
             ) {
                 val wifiInfo = networkCapabilities.transportInfo as? WifiInfo
                 deviceDiscoveryCallback(wifiInfo)
+                broadcastDevice()
+                probePairedDevices()
+            }
+
+            override fun onAvailable(network: Network) {
+                Log.d(TAG, "Network callback Received (onAvailable)")
+                broadcastDevice()
+                probePairedDevices()
             }
 
             override fun onLost(network: Network) {
                 Log.d(TAG, "Network Lost")
                 _currentWifiSsid.value = null
-                stopDiscovery()
+                if (!trustAllNetworks) stopDiscovery()
             }
         }
     } else {
@@ -201,12 +212,14 @@ class NetworkDiscovery @Inject constructor(
                 val wifiManager = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
                 val wifiInfo = wifiManager.connectionInfo
                 deviceDiscoveryCallback(wifiInfo)
+                broadcastDevice()
+                probePairedDevices()
             }
 
             override fun onLost(network: Network) {
                 Log.d(TAG, "Network Lost")
                 _currentWifiSsid.value = null
-                stopDiscovery()
+                if (!trustAllNetworks) stopDiscovery()
             }
         }
     }
@@ -217,10 +230,34 @@ class NetworkDiscovery @Inject constructor(
             if (wifiInfo != null && wifiInfo.ssid != UNKNOWN_SSID && wifiInfo.networkId != -1) {
                 updateWifiSsid(wifiInfo.ssid)
                 _currentWifiSsid.value?.let { ssid ->
-                    appRepository.getNetwork(ssid)?.let {  startDiscovery() } ?: stopDiscovery()
+                    if (trustAllNetworks || appRepository.getNetwork(ssid) != null) {
+                        startDiscovery()
+                        broadcastDevice()
+                    } else {
+                        stopDiscovery()
+                    }
                 }
             } else {
                 _currentWifiSsid.value = null
+            }
+        }
+    }
+
+    fun probePairedDevices() {
+        scope.launch {
+            try {
+                probeUsbDevice()
+                deviceManager.pairedDevices.value.forEach { device ->
+                    if (device.connectionState.isForcedDisconnect) return@forEach
+                    if (!device.connectionState.isConnectedOrConnecting || device.address == "127.0.0.1") {
+                        val hasNonLoopback = device.addresses.any { !it.address.startsWith("127.") }
+                        if (hasNonLoopback) {
+                            networkManager.connectPaired(device)
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.d(TAG, "probePairedDevices: ${e.message}")
             }
         }
     }
@@ -379,9 +416,7 @@ class NetworkDiscovery @Inject constructor(
 
                 when (val device = deviceManager.getDevice(udpBroadcast.deviceId)) {
                     is PairedDevice -> {
-                         if (device.connectionState.isConnectedOrConnecting || device.connectionState.isForcedDisconnect) continue
-
-                        // Update IP addresses if new ones are found
+                        // Always update IP addresses if new ones are found, regardless of connection state
                         val existingAddresses = device.addresses.map { it.address }.toSet()
                         if (!existingAddresses.contains(senderIp)) {
                             try {
@@ -392,13 +427,18 @@ class NetworkDiscovery @Inject constructor(
                             }
                         }
 
-                         // Update device with discovered port if it differs
-                         val updatedDevice = if (device.port != udpBroadcast.port) {
-                             device.copy(port = udpBroadcast.port)
-                         } else {
-                             device
-                         }
-                         networkManager.connectPaired(updatedDevice)
+                        if (device.connectionState.isForcedDisconnect) continue
+
+                        // If already connected and not on loopback, don't re-connect
+                        if (device.connectionState.isConnectedOrConnecting && device.address != "127.0.0.1") continue
+
+                        // Update device with discovered port if it differs
+                        val updatedDevice = if (device.port != udpBroadcast.port) {
+                            device.copy(port = udpBroadcast.port)
+                        } else {
+                            device
+                        }
+                        networkManager.connectPaired(updatedDevice)
                     }
                     null -> {
                         // New device

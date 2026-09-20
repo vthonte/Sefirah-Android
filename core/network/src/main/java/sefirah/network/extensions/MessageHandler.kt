@@ -24,6 +24,8 @@ import sefirah.domain.model.PairMessage
 import sefirah.domain.model.PairedDevice
 import sefirah.domain.model.PlaybackInfo
 import sefirah.domain.model.PlaySound
+import sefirah.domain.model.Ping
+import sefirah.domain.model.Pong
 import sefirah.domain.model.RequestApplicationList
 import sefirah.domain.model.RingerModeState
 import sefirah.domain.model.SocketMessage
@@ -45,6 +47,8 @@ suspend fun NetworkService.handleMessage(device: BaseRemoteDevice, message: Sock
         if (device is PairedDevice) {
             when (message) {
                 is DeviceInfo -> handleDeviceInfo(message, device)
+                is Ping -> sendMessage(device.deviceId, Pong(message.timestamp))
+                is Pong -> {} // Connection keep-alive response
                 is ClearNotifications -> notificationFeature.removeAllNotification()
                 is RequestApplicationList -> appListHandler.handleRequest(device.deviceId)
                 is Disconnect -> disconnectDevice(device, true)

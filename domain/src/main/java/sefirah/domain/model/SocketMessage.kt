@@ -13,6 +13,18 @@ import kotlinx.serialization.json.JsonClassDiscriminator
 sealed class SocketMessage
 
 @Serializable
+@SerialName("Ping")
+data class Ping(
+    val timestamp: Long = System.currentTimeMillis()
+) : SocketMessage()
+
+@Serializable
+@SerialName("Pong")
+data class Pong(
+    val timestamp: Long = System.currentTimeMillis()
+) : SocketMessage()
+
+@Serializable
 @SerialName("Disconnect")
 object Disconnect : SocketMessage()
 

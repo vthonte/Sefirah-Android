@@ -31,10 +31,32 @@ class BluetoothDiscoverableActivity : FragmentActivity() {
             finish()
         }
 
+    private val enableBluetoothLauncher =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { _: ActivityResult ->
+            val bluetoothManager = getSystemService(BLUETOOTH_SERVICE) as? BluetoothManager
+            if (bluetoothManager?.adapter?.isEnabled == true) {
+                launchDiscoverable()
+            } else {
+                sendResult(false)
+                finish()
+            }
+        }
+
     private val permissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { permissions ->
             val granted = permissions.values.all { it }
-            if (granted) launchDiscoverable() else { sendResult(false); finish() }
+            if (granted) {
+                val adapter = (getSystemService(BLUETOOTH_SERVICE) as? BluetoothManager)?.adapter
+                if (adapter != null) {
+                    ensureBluetoothEnabledAndLaunch(adapter)
+                } else {
+                    sendResult(false)
+                    finish()
+                }
+            } else {
+                sendResult(false)
+                finish()
+            }
         }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -51,7 +73,7 @@ class BluetoothDiscoverableActivity : FragmentActivity() {
 
         val bluetoothManager = getSystemService(BLUETOOTH_SERVICE) as? BluetoothManager
         val adapter = bluetoothManager?.adapter
-        if (adapter == null || !adapter.isEnabled) {
+        if (adapter == null) {
             sendResult(false)
             finish()
             return
@@ -62,7 +84,28 @@ class BluetoothDiscoverableActivity : FragmentActivity() {
             return
         }
 
-        launchDiscoverable()
+        ensureBluetoothEnabledAndLaunch(adapter)
+    }
+
+    private fun ensureBluetoothEnabledAndLaunch(adapter: BluetoothAdapter) {
+        if (adapter.isEnabled) {
+            launchDiscoverable()
+            return
+        }
+
+        // Try direct enable if permitted
+        runCatching { adapter.enable() }
+        if (adapter.isEnabled) {
+            launchDiscoverable()
+            return
+        }
+
+        // Fall back to system prompt intent
+        val enableIntent = Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE)
+        runCatching { enableBluetoothLauncher.launch(enableIntent) }
+            .onFailure {
+                launchDiscoverable()
+            }
     }
 
     private fun launchDiscoverable() {

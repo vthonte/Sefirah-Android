@@ -24,8 +24,8 @@ class BluetoothPairingHandler @Inject constructor(
 
     fun handleBluetoothRequest(sourceDeviceId: String) {
         val adapter = bluetoothManager.adapter
-        if (adapter == null || !adapter.isEnabled) {
-            Log.w(TAG, "Bluetooth unavailable/disabled; cannot open discoverable flow")
+        if (adapter == null) {
+            Log.w(TAG, "Bluetooth unavailable on this device; cannot open discoverable flow")
             networkManager.sendMessage(sourceDeviceId, BluetoothPairingResult(false))
             return
         }
